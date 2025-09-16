@@ -292,6 +292,14 @@ resource "aws_instance" "aft_vpc_nat" {
     device_index         = 0
   }
 
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+    instance_metadata_tags      = "disabled"
+    http_protocol_ipv6          = "disabled"
+  }
+
   tags = {
     Name = "aft-vpc-nat-0${count.index+1}"
   }
