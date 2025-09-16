@@ -77,8 +77,8 @@ resource "aws_route_table" "aft_vpc_private_subnet_01" {
   count  = var.aft_enable_vpc && var.aft_customer_vpc_id == null ? 1 : 0
   vpc_id = aws_vpc.aft_vpc[0].id
   route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.aft-vpc-natgw-01[0].id
+    cidr_block           = "0.0.0.0/0"
+    network_interface_id = aws_network_interface.aft_vpc_nat[0].id
   }
   tags = {
     Name = "aft-vpc-private-subnet-01"
@@ -89,8 +89,8 @@ resource "aws_route_table" "aft_vpc_private_subnet_02" {
   count  = var.aft_enable_vpc && var.aft_customer_vpc_id == null ? 1 : 0
   vpc_id = aws_vpc.aft_vpc[0].id
   route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.aft-vpc-natgw-02[0].id
+    cidr_block           = "0.0.0.0/0"
+    network_interface_id = aws_network_interface.aft_vpc_nat[1].id
   }
   tags = {
     Name = "aft-vpc-private-subnet-02"
@@ -189,7 +189,7 @@ resource "aws_security_group" "aft_vpc_endpoint_sg" {
 }
 
 #########################################
-# Internet & NAT GWs
+# Internet & NAT Instances
 #########################################
 
 resource "aws_internet_gateway" "aft-vpc-igw" {
@@ -209,6 +209,97 @@ resource "aws_eip" "aft-vpc-natgw-01" {
 resource "aws_eip" "aft-vpc-natgw-02" {
   count  = var.aft_enable_vpc && var.aft_customer_vpc_id == null ? 1 : 0
   domain = "vpc"
+}
+
+data "aws_ami" "fck_nat" {
+  most_recent = true
+  owners      = ["568608671756"]
+
+  filter {
+    name   = "name"
+    values = ["fck-nat-al2023-*"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["arm64"]
+  }
+
+  filter {
+    name   = "root-device-type"
+    values = ["ebs"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+resource "aws_security_group" "aft_vpc_nat" {
+  count = var.aft_enable_vpc && var.aft_customer_vpc_id == null ? 2 : 0
+
+  name        = "aft-vpc-nat-0${count.index+1}-sg"
+  description = "Allow inbound HTTPS traffic from private subnet and all Outbound"
+  vpc_id      = aws_vpc.aft_vpc[0].id
+
+  ingress {
+    description = "Allow inbound traffic from private subnet"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [[aws_subnet.aft_vpc_private_subnet_01, aws_subnet.aft_vpc_private_subnet_02][count.index][0].cidr_block]
+  }
+
+  # Open egress required to download dependencies
+  egress {
+    description      = "Allow outbound traffic to internet"
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"] #tfsec:ignore:aws-ec2-no-public-egress-sgr
+    ipv6_cidr_blocks = ["::/0"]      #tfsec:ignore:aws-ec2-no-public-egress-sgr
+  }
+}
+
+resource "aws_network_interface" "aft_vpc_nat" {
+  count = var.aft_enable_vpc && var.aft_customer_vpc_id == null ? 2 : 0
+
+  subnet_id         = [aws_subnet.aft_vpc_public_subnet_01, aws_subnet.aft_vpc_public_subnet_02][count.index][0].id
+  security_groups   = [aws_security_group.aft_vpc_nat[count.index].id]
+  source_dest_check = false
+
+  tags = {
+    Name = "aft-vpc-nat-0${count.index+1}"
+  }
+}
+
+resource "aws_eip_association" "aft_vpc_nat" {
+  count = var.aft_enable_vpc && var.aft_customer_vpc_id == null ? 2 : 0
+
+  network_interface_id = aws_network_interface.aft_vpc_nat[count.index].id
+  allocation_id        = [aws_eip.aft-vpc-natgw-01, aws_eip.aft-vpc-natgw-02][count.index][0].id
+}
+
+resource "aws_instance" "aft_vpc_nat" {
+  count = var.aft_enable_vpc && var.aft_customer_vpc_id == null ? 2 : 0
+
+  instance_type = "t4g.nano"
+  ami           = data.aws_ami.fck_nat.id
+
+  network_interface {
+    network_interface_id = aws_network_interface.aft_vpc_nat[count.index].id
+    device_index         = 0
+  }
+
+  tags = {
+    Name = "aft-vpc-nat-0${count.index+1}"
+  }
+
+  depends_on = [
+    aws_internet_gateway.aft-vpc-igw,
+    aws_eip_association.aft_vpc_nat
+  ]
 }
 
 resource "aws_nat_gateway" "aft-vpc-natgw-01" {
