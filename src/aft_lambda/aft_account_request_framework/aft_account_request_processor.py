@@ -40,29 +40,28 @@ def lambda_handler(event: Dict[str, Any], context: LambdaContext) -> None:
     threshold = int(os.environ["AFT_PROVISIONING_CONCURRENCY"])
 
     try:
-        account_request = AccountRequest(auth=auth)
-        try:
-            account_request.associate_aft_service_role_with_account_factory()
-        except NoAccountFactoryPortfolioFound:
-            logger.warning(
-                f"Failed to automatically associate {ProvisionRoles.SERVICE_ROLE_NAME} to portfolio {AccountRequest.ACCOUNT_FACTORY_PORTFOLIO_NAME}. Manual intervention may be required"
-            )
-
-        ct_management_session = auth.get_ct_management_session(
-            role_name=ProvisionRoles.SERVICE_ROLE_NAME
+        sqs_message = sqs.receive_sqs_message(
+            aft_management_session,
+            aft_common.ssm.get_ssm_parameter_value(
+                aft_management_session, utils.SSM_PARAM_ACCOUNT_REQUEST_QUEUE
+            ),
         )
+        if sqs_message is not None:
+            account_request = AccountRequest(auth=auth)
+            try:
+                account_request.associate_aft_service_role_with_account_factory()
+            except NoAccountFactoryPortfolioFound:
+                logger.warning(
+                    f"Failed to automatically associate {ProvisionRoles.SERVICE_ROLE_NAME} to portfolio {AccountRequest.ACCOUNT_FACTORY_PORTFOLIO_NAME}. Manual intervention may be required"
+                )
 
-        if account_request.provisioning_threshold_reached(threshold=threshold):
-            logger.info("Concurrent account provisioning threshold reached, exiting")
-            return None
-        else:
-            sqs_message = sqs.receive_sqs_message(
-                aft_management_session,
-                aft_common.ssm.get_ssm_parameter_value(
-                    aft_management_session, utils.SSM_PARAM_ACCOUNT_REQUEST_QUEUE
-                ),
+            ct_management_session = auth.get_ct_management_session(
+                role_name=ProvisionRoles.SERVICE_ROLE_NAME
             )
-            if sqs_message is not None:
+            if account_request.provisioning_threshold_reached(threshold=threshold):
+                logger.info("Concurrent account provisioning threshold reached, exiting")
+                return None
+            else:
                 aft_metrics = AFTMetrics()
 
                 sqs_body = json.loads(sqs_message["Body"])
