@@ -310,32 +310,6 @@ resource "aws_instance" "aft_vpc_nat" {
   ]
 }
 
-resource "aws_nat_gateway" "aft-vpc-natgw-01" {
-  count      = var.aft_enable_vpc && var.aft_customer_vpc_id == null ? 1 : 0
-  depends_on = [aws_internet_gateway.aft-vpc-igw]
-
-  allocation_id = aws_eip.aft-vpc-natgw-01[0].id
-  subnet_id     = aws_subnet.aft_vpc_public_subnet_01[0].id
-
-  tags = {
-    Name = "aft-vpc-natgw-01"
-  }
-
-}
-
-resource "aws_nat_gateway" "aft-vpc-natgw-02" {
-  count      = var.aft_enable_vpc && var.aft_customer_vpc_id == null ? 1 : 0
-  depends_on = [aws_internet_gateway.aft-vpc-igw]
-
-  allocation_id = aws_eip.aft-vpc-natgw-02[0].id
-  subnet_id     = aws_subnet.aft_vpc_public_subnet_02[0].id
-
-  tags = {
-    Name = "aft-vpc-natgw-02"
-  }
-
-}
-
 #########################################
 # VPC Gateway Endpoints
 #########################################
